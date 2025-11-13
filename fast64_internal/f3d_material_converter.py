@@ -193,6 +193,15 @@ def convertAllBSDFtoF3D(objs, renameUV, lightmap_info = None):
                     convertBSDFtoF3D(obj, index, material, materialDict, lightmap_info)
 
 
+def get_material_image(mat):
+    if not mat.use_nodes:
+        return None
+
+    for node in mat.node_tree.nodes:
+        if node.type == 'TEX_IMAGE' and node.image:
+            return node.image
+    return None
+
 def convertBSDFtoF3D(obj, index, material, materialDict, lightmap_info = None):
     if not material.use_nodes:
         newMaterial = createF3DMat(obj, preset="Shaded Solid", index=index, lightmap=(lightmap_info != None))
@@ -229,7 +238,11 @@ def convertBSDFtoF3D(obj, index, material, materialDict, lightmap_info = None):
                 f3dMat = newMaterial.f3d_mat if newMaterial.mat_ver > 3 else newMaterial
                 f3dMat.tex0.tex = tex0Node.links[0].from_node.image
 
-                if lightmap_info != None:
+                
+                lightmap_assigned_mat = bpy.data.materials.get(material["lightmap_texture"])
+                if lightmap_assigned_mat != None:
+                    f3dMat.tex1.tex = get_material_image(lightmap_assigned_mat)
+                elif lightmap_info != None:
                     f3dMat.tex1.tex = lightmap_info['tex']
                 elif len(tex1Node.links) > 0 and isinstance(tex1Node.links[0].from_node, bpy.types.ShaderNodeTexImage):
                     f3dMat.tex1.tex = tex1Node.links[0].from_node.image
