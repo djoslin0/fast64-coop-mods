@@ -14,7 +14,10 @@ def combine_lightmaps(lm_image, ao_image, ao_strength):
     width = lm_image.size[0]
     height = lm_image.size[1]
     combined_name = "lightmap_" + bpy.context.active_object.name[0:8]
-    ao_enabled = ao_strength > 0 and ao_image != None and ao_image.pixels != None
+    ao_enabled = False
+    if ao_image is not None and ao_image.pixels is not None and ao_strength > 0:
+        ao_enabled = True
+        ao_pixels = ao_image.pixels[:]
 
     # remove previous gamma corrected image
     for i in bpy.data.images:
@@ -25,8 +28,6 @@ def combine_lightmaps(lm_image, ao_image, ao_strength):
     # create gamma corrected image
     combined = bpy.data.images.new(combined_name, width, height)
     combined_pixels = list(lm_image.pixels)
-    if ao_enabled:
-        ao_pixels = ao_image.pixels[:] # create a copy (tuple) for read-only access
     for x in range(width):
         for y in range(height):
             offs = (x + int(y * width)) * 4
@@ -102,59 +103,75 @@ def convert_for_lightmap():
     if bpy.context.mode != "OBJECT":
         raise PluginError("Operator can only be used in object mode.")
 
-    # check for selection
-    if len(bpy.context.selected_objects) == 0:
-        raise PluginError("Mesh not selected.")
-    elif type(bpy.context.selected_objects[0].data) is not bpy.types.Mesh:
-        raise PluginError("Mesh not selected.")
+    # Get selected mesh objects
+    selected_meshes = [obj for obj in bpy.context.selected_objects if isinstance(obj.data, bpy.types.Mesh)]
 
-    lightmap = combine_lightmaps(bpy.context.scene.get("CoopLMImage"), bpy.context.scene.get("CoopAOImage"), bpy.context.scene.CoopAOStrength)
+    if not selected_meshes:
+        raise PluginError("No mesh objects selected.")
 
-    # hide the selected object
-    original_obj = bpy.context.active_object
+    lightmap = combine_lightmaps(bpy.context.scene.CoopLMImage, bpy.context.scene.CoopAOImage, bpy.context.scene.CoopAOStrength)
 
-    # Duplicate the selected object
-    obj = original_obj.copy()
-    obj.data = original_obj.data.copy()
-    obj.animation_data_clear()
-    bpy.context.collection.objects.link(obj)
-    obj.name = obj.name + '_mapped'
-    obj.select_set(True)
-    original_obj.hide_set(True)
+    duplicated_objects = []
 
-    # create the uv map if it doesn't exist
-    uv_map = None
-    uv_map_name = None
-    if len(obj.data.uv_layers) < 1:
-        raise PluginError("No regular UV map.")
-    elif len(obj.data.uv_layers) < 2:
-        uv_map = create_uv(obj, 'Lightmap')
-    else:
-        uv_map = obj.data.uv_layers[1]
+    replace_originals = bpy.context.scene.CoopReplaceOriginals
 
-    # error check
-    if uv_map is None:
-        raise PluginError("Could not generate or find second uv map.")
-    uv_map_name = uv_map.name
+    for original_obj in selected_meshes:
+        if replace_originals:
+            obj = original_obj
+        else:
+            # Duplicate the selected object
+            obj = original_obj.copy()
+            obj.data = original_obj.data.copy()
+            obj.animation_data_clear()
+            bpy.context.collection.objects.link(obj)
 
-    # create the col if it doesn't exist
-    col = None
-    col_name = 'UVColors'
-    if col_name not in obj.data.vertex_colors:
-        col = create_col(obj, col_name)
-    else:
-        col = obj.data.vertex_colors[col_name]
+            # Ensure unique name
+            base_name = original_obj.name
+            counter = 1
+            new_name = f"{base_name}_mapped"
+            while new_name in bpy.data.objects:
+                new_name = f"{base_name}_mapped_{counter}"
+                counter += 1
+            obj.name = new_name
 
-    # error check
-    if col is None:
-        raise PluginError("Could not generate or find vertex colors.")
+            obj.select_set(True)
+            original_obj.hide_set(True)
 
-    # convert the UV map to vertex colors
-    convert_uv_to_col(obj, obj.data.uv_layers[uv_map_name], col)
+        # create the uv map if it doesn't exist
+        uv_map = None
+        uv_map_name = None
+        if len(obj.data.uv_layers) < 1:
+            raise PluginError("No regular UV map.")
+        elif len(obj.data.uv_layers) < 2:
+            uv_map = create_uv(obj, 'Lightmap')
+        else:
+            uv_map = obj.data.uv_layers[1]
+
+        # error check
+        if uv_map is None:
+            raise PluginError("Could not generate or find second uv map.")
+        uv_map_name = uv_map.name
+
+        # create the col if it doesn't exist
+        col = None
+        col_name = 'UVColors'
+        if col_name not in obj.data.vertex_colors:
+            col = create_col(obj, col_name)
+        else:
+            col = obj.data.vertex_colors[col_name]
+
+        # error check
+        if col is None:
+            raise PluginError("Could not generate or find vertex colors.")
+
+        # convert the UV map to vertex colors
+        convert_uv_to_col(obj, obj.data.uv_layers[uv_map_name], col)
+
+        duplicated_objects.append(obj)
 
     # build up lightmap info
     lightmap_info = {
-        'uv': uv_map_name,
+        'uv': 'Lightmap',
         'tex': lightmap,
         'material': 'sm64_lightmap_texture'
     }
@@ -163,7 +180,7 @@ def convert_for_lightmap():
         lightmap_info['material'] = 'sm64_lightmap_fog_texture'
 
     # convert the materials to F3D
-    convertAllBSDFtoF3D([obj], False, lightmap_info = lightmap_info)
+    convertAllBSDFtoF3D(duplicated_objects, False, lightmap_info = lightmap_info)
     # inject the uv map into the F3D material
 
 
@@ -210,6 +227,7 @@ class F3D_CoopPanel(bpy.types.Panel):
         prop_split(col, context.scene, "CoopAOImage", "Ambient Occlusion Image")
         prop_split(col, context.scene, "CoopAOStrength", "Ambient Occlusion Strength")
         prop_split(col, context.scene, "CoopLMFog", "Fog")
+        prop_split(col, context.scene, "CoopReplaceOriginals", "Replace Originals")
         col.operator(F3D_Coop.bl_idname)
 
 f3d_coop_classes = (
@@ -221,10 +239,11 @@ def f3d_coop_register():
     for cls in f3d_coop_classes:
         register_class(cls)
 
-    bpy.types.Scene.CoopLMImage    = bpy.props.PointerProperty(name="CoopLMImage", type=Image)
-    bpy.types.Scene.CoopAOImage    = bpy.props.PointerProperty(name="CoopAOImage", type=Image)
-    bpy.types.Scene.CoopAOStrength = bpy.props.FloatProperty(name="CoopAOStrength", default=0.75)
-    bpy.types.Scene.CoopLMFog      = bpy.props.BoolProperty(name="CoopLMFog", default=0)
+    bpy.types.Scene.CoopLMImage       = bpy.props.PointerProperty(name="CoopLMImage", type=Image)
+    bpy.types.Scene.CoopAOImage       = bpy.props.PointerProperty(name="CoopAOImage", type=Image)
+    bpy.types.Scene.CoopAOStrength    = bpy.props.FloatProperty(name="CoopAOStrength", default=0.75)
+    bpy.types.Scene.CoopLMFog         = bpy.props.BoolProperty(name="CoopLMFog", default=0)
+    bpy.types.Scene.CoopReplaceOriginals = bpy.props.BoolProperty(name="CoopReplaceOriginals", default=False)
 
 
 def f3d_coop_unregister():
@@ -235,3 +254,4 @@ def f3d_coop_unregister():
     del bpy.types.Scene.CoopAOImage
     del bpy.types.Scene.CoopAOStrength
     del bpy.types.Scene.CoopLMFog
+    del bpy.types.Scene.CoopReplaceOriginals
