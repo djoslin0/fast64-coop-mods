@@ -239,7 +239,8 @@ def convertBSDFtoF3D(obj, index, material, materialDict, lightmap_info = None):
                 f3dMat.tex0.tex = tex0Node.links[0].from_node.image
 
                 
-                lightmap_assigned_mat = bpy.data.materials.get(material["lightmap_texture"])
+                lightmap_name = material.get("lightmap_texture")
+                lightmap_assigned_mat = bpy.data.materials.get(material["lightmap_texture"]) if lightmap_name else None
                 if lightmap_assigned_mat != None:
                     f3dMat.tex1.tex = get_material_image(lightmap_assigned_mat)
                 elif lightmap_info != None:
