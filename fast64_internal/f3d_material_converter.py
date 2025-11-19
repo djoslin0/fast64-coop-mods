@@ -240,9 +240,16 @@ def convertBSDFtoF3D(obj, index, material, materialDict, lightmap_info = None):
 
                 
                 lightmap_name = material.get("lightmap_texture")
-                lightmap_assigned_mat = bpy.data.materials.get(material["lightmap_texture"]) if lightmap_name else None
-                if lightmap_assigned_mat != None:
-                    f3dMat.tex1.tex = get_material_image(lightmap_assigned_mat)
+                if lightmap_name:
+                    lightmap_name = lightmap_name + '.png'
+                    # Try getting the image directly by name
+                    print(f"looking for lightmap {lightmap_name}")
+                    lightmap_image = bpy.data.images.get(lightmap_name)
+                    if lightmap_image:
+                        f3dMat.tex1.tex = lightmap_image
+                        print(f"    found image {lightmap_name}")
+                    else:
+                        print(f"    image {lightmap_name} not found")
                 elif lightmap_info != None:
                     f3dMat.tex1.tex = lightmap_info['tex']
                 elif len(tex1Node.links) > 0 and isinstance(tex1Node.links[0].from_node, bpy.types.ShaderNodeTexImage):

@@ -13,7 +13,7 @@ def gamma_correct_value(val):
 def combine_lightmaps(lm_image, ao_image, ao_strength):
     width = lm_image.size[0]
     height = lm_image.size[1]
-    combined_name = "lightmap_" + bpy.context.active_object.name[0:8]
+    combined_name = "lightmap_" + lm_image.name
     ao_enabled = False
     if ao_image is not None and ao_image.pixels is not None and ao_strength > 0:
         ao_enabled = True
