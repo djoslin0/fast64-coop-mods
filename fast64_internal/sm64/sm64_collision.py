@@ -124,19 +124,64 @@ class Collision:
     def size(self):
         return len(self.to_binary())
 
+    def to_groups(self):
+        # Flatten all triangles, keeping their collision types
+        all_triangles = []
+        for collisionType, triangles in self.triangles.items():
+            for tri in triangles:
+                all_triangles.append((collisionType, tri))
+
+        chunk_size = 10000  # Number of triangles per chunk
+        chunks = [all_triangles[i:i + chunk_size] for i in range(0, len(all_triangles), chunk_size)]
+
+        groups = []
+        for chunk in chunks:
+            vtx_map = {}
+            g_vertices = []
+            g_triangles = {}
+
+            for collisionType, triangle in chunk:
+                if collisionType not in g_triangles:
+                    g_triangles[collisionType] = []
+
+                c_indices = []
+                for index in triangle.indices:
+                    if index in vtx_map:
+                        c_indices.append(vtx_map[index])
+                    else:
+                        new_index = len(g_vertices)
+                        g_vertices.append(CollisionVertex(self.vertices[index].position))
+                        vtx_map[index] = new_index
+                        c_indices.append(new_index)
+
+                g_triangles[collisionType].append(CollisionTriangle(c_indices, triangle.specialParam, triangle.room))
+
+            groups.append({
+                'vertices': g_vertices,
+                'triangles': g_triangles
+            })
+
+        return groups
+
     def to_c(self):
         data = CData()
         data.header = "extern const Collision " + self.name + "[];\n"
         data.source = "const Collision " + self.name + "[] = {\n"
-        data.source += "\tCOL_INIT(),\n"
-        data.source += "\tCOL_VERTEX_INIT(" + str(len(self.vertices)) + "),\n"
-        for vertex in self.vertices:
-            data.source += "\t" + vertex.to_c()
-        for collisionType, triangles in self.triangles.items():
-            data.source += "\tCOL_TRI_INIT(" + collisionType + ", " + str(len(triangles)) + "),\n"
-            for triangle in triangles:
-                data.source += "\t" + triangle.to_c()
-        data.source += "\tCOL_TRI_STOP(),\n"
+
+        groups = self.to_groups()
+        for group in groups:
+            g_vertices = group['vertices']
+            g_triangles = group['triangles']
+            data.source += "\tCOL_INIT(),\n"
+            data.source += "\tCOL_VERTEX_INIT(" + str(len(g_vertices)) + "),\n"
+            for vertex in g_vertices:
+                data.source += "\t" + vertex.to_c()
+            for collisionType, triangles in g_triangles.items():
+                data.source += "\tCOL_TRI_INIT(" + collisionType + ", " + str(len(triangles)) + "),\n"
+                for triangle in triangles:
+                    data.source += "\t" + triangle.to_c()
+            data.source += "\tCOL_TRI_STOP(),\n"
+
         if len(self.specials) > 0:
             data.source += "\tCOL_SPECIAL_INIT(" + str(len(self.specials)) + "),\n"
             for special in self.specials:
