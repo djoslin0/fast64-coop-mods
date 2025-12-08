@@ -179,7 +179,10 @@ def fixLargeUVs(obj):
         size = texSizeDict[material]
         if size[0] == 0 or size[1] == 0:
             continue
-        cellSize = [1024 / size[0], 1024 / size[1]]
+        if size[1] > size[0]:  # taller than wide
+            cellSize = [1024 / size[0], 1024 / size[0]]
+        else:
+            cellSize = [1024 / size[0], 1024 / size[1]]
         minUV, maxUV = findUVBounds(polygon, uv_data)
         uvOffset = [0, 0]
 
